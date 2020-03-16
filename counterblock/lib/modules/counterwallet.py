@@ -600,7 +600,7 @@ def init():
 
     def download_geoip_data():
         logger.info("Checking/updating {} ...".format(mmdbName))
-        download = TRUE
+        download = False
 
         if not os.path.isfile(geoip_data_path):
             download = True

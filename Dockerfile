@@ -9,7 +9,7 @@ RUN apt-get update && apt-get -y upgrade && apt-get -y install libjpeg8-dev libg
 COPY requirements.txt /counterblock/
 COPY setup.py /counterblock/
 COPY ./counterblock/lib/config.py /counterblock/counterblock/lib/
-COPY ./geolite2-city/GeoLite2-City.mmdb /root/.local/share/counterblock/GeoLite2-City.mmdb
+COPY ./geolite2-city/GeoLite2-City.mmdb /counterblock/
 
 WORKDIR /counterblock
 RUN pip3 install -r requirements.txt
