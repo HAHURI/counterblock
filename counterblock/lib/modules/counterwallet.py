@@ -613,8 +613,6 @@ def init():
         if download:
             logger.info("Downloading {}".format(mmdbName))
             # TODO: replace with pythonic way to do this!
-            logger.info(config.data_dir)
-            logger.info("'{}'".util.subprocess_cmd("ll /counterblock"))
             cmd = "cd '{}' && wget -N -q https://geolite.maxmind.com/download/geoip/database/GeoLite2-City.tar.gz && tar xzf GeoLite2-City.tar.gz && cp */GeoLite2-City.mmdb .".format(config.data_dir)
             util.subprocess_cmd(cmd)
         else:
