@@ -17,7 +17,6 @@ RUN python3 setup.py develop
 
 COPY docker/server.conf /root/.config/counterblock/server.conf
 COPY docker/modules.conf /root/.config/counterblock/modules.conf
-COPY docker/counterwallet.conf /root/.config/counterblock/counterwallet.conf
 COPY docker/start.sh /usr/local/bin/start.sh
 
 COPY geolite2-city/GeoLite2-City.mmdb /root/.local/share/counterblock/GeoLite2-City.mmdb
