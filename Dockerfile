@@ -9,18 +9,19 @@ RUN apt-get update && apt-get -y upgrade && apt-get -y install libjpeg8-dev libg
 COPY requirements.txt /counterblock/
 COPY setup.py /counterblock/
 COPY ./counterblock/lib/config.py /counterblock/counterblock/lib/
-COPY ./geolite2-city/GeoLite2-City.mmdb /counterblock/
 
 WORKDIR /counterblock
 RUN pip3 install -r requirements.txt
 COPY . /counterblock
 RUN python3 setup.py develop
 
-
 COPY docker/server.conf /root/.config/counterblock/server.conf
 COPY docker/modules.conf /root/.config/counterblock/modules.conf
 COPY docker/counterwallet.conf /root/.config/counterblock/counterwallet.conf
 COPY docker/start.sh /usr/local/bin/start.sh
+
+COPY geolite2-city/GeoLite2-City.mmdb /root/.local/share/counterblock/GeoLite2-City.mmdb
+
 RUN chmod a+x /usr/local/bin/start.sh
 
 EXPOSE 4100 4101 4102 14100 14101 14102
