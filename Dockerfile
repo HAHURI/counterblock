@@ -19,8 +19,6 @@ COPY docker/modules.conf /root/.config/counterblock/modules.conf
 COPY docker/counterwallet.conf /root/.config/counterblock/counterwallet.conf
 COPY docker/start.sh /usr/local/bin/start.sh
 
-COPY geolite2-city/GeoLite2-City.mmdb /root/.local/share/counterblock/
-
 RUN chmod a+x /usr/local/bin/start.sh
 
 EXPOSE 4100 4101 4102 14100 14101 14102
