@@ -65,9 +65,11 @@ def reset_db_state():
     config.mongo_db.app_config.update({}, {
         'db_version': config.DB_VERSION,  # counterblockd database version
         'running_testnet': config.TESTNET,
+        'running_regtest': config.REGTEST,
         'counterpartyd_db_version_major': None,
         'counterpartyd_db_version_minor': None,
         'counterpartyd_running_testnet': None,
+        'counterpartyd_running_regtest': None,
         'last_block_assets_compiled': config.BLOCK_FIRST,  # for asset data compilation in tasks.py (resets on reparse as well)
     }, upsert=True)
     app_config = config.mongo_db.app_config.find()[0]
@@ -82,10 +84,11 @@ def reset_db_state():
     return app_config
 
 
-def reparse(quit_after=False):
+def init_reparse(quit_after=False):
     app_config = reset_db_state()
     config.state['my_latest_block'] = config.LATEST_BLOCK_INIT
 
+    config.IS_REPARSING = True
     if quit_after:
         config.QUIT_AFTER_CAUGHT_UP = True
 
@@ -97,7 +100,7 @@ def rollback(max_block_index):
        and we should get rid of them
 
     NOTE: after calling this function, you should always trigger a "continue" statement to reiterate the processing loop
-    (which will get a new cp_latest_block from counterpartyd and resume as appropriate)   
+    (which will get a new cp_latest_block from counterpartyd and resume as appropriate)
     """
     assert isinstance(max_block_index, int) and max_block_index >= config.BLOCK_FIRST
     if not config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}):
@@ -108,7 +111,7 @@ def rollback(max_block_index):
 
     config.state['last_message_index'] = -1
     config.state['caught_up'] = False
-    cache.blockinfo_cache.clear()
+    cache.clear_block_info_cache()
     config.state['my_latest_block'] = config.mongo_db.processed_blocks.find_one({"block_index": max_block_index}) or config.LATEST_BLOCK_INIT
 
     # call any rollback processors for any extension modules

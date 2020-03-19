@@ -135,7 +135,7 @@ def task_compile_extended_asset_info():
 def get_normalized_balances(addresses):
     """
     This call augments counterparty's get_balances with a normalized_quantity field. It also will include any owned
-    assets for an address, even if their balance is zero. 
+    assets for an address, even if their balance is zero.
     NOTE: Does not retrieve BTC balance. Use get_address_info for that.
     """
     if not isinstance(addresses, list):
@@ -168,6 +168,12 @@ def get_normalized_balances(addresses):
             divisible = asset_info['divisible']
         d['normalized_quantity'] = blockchain.normalize_quantity(d['quantity'], divisible)
         d['owner'] = (d['address'] + d['asset']) in isowner
+
+        try:
+            d['asset_longname'] = asset_info['asset_longname']
+        except TypeError as e:
+            d['asset_longname'] = d['asset']
+
         mappings[d['address'] + d['asset']] = d
         data.append(d)
 
@@ -194,21 +200,21 @@ def get_escrowed_balances(addresses):
             FROM orders
             WHERE source IN ({}) AND status = ? AND give_asset != ?
             GROUP BY source_asset'''.format(addresses_holder)
-    bindings = addresses + ['open', 'BTC']
+    bindings = addresses + ['open', config.BTC]
     results = util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
     sql = '''SELECT (tx0_address || '_' || forward_asset) AS source_asset, tx0_address AS address, forward_asset AS asset, SUM(forward_quantity) AS quantity
              FROM order_matches
              WHERE tx0_address IN ({}) AND forward_asset != ? AND status = ?
              GROUP BY source_asset'''.format(addresses_holder)
-    bindings = addresses + ['BTC', 'pending']
+    bindings = addresses + [config.BTC, 'pending']
     results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
     sql = '''SELECT (tx1_address || '_' || backward_asset) AS source_asset, tx1_address AS address, backward_asset AS asset, SUM(backward_quantity) AS quantity
              FROM order_matches
              WHERE tx1_address IN ({}) AND backward_asset != ? AND status = ?
              GROUP BY source_asset'''.format(addresses_holder)
-    bindings = addresses + ['BTC', 'pending']
+    bindings = addresses + [config.BTC, 'pending']
     results += util.call_jsonrpc_api("sql", {'query': sql, 'bindings': bindings}, abort_on_error=True)['result']
 
     sql = '''SELECT source AS address, '{}' AS asset, SUM(wager_remaining) AS quantity
@@ -244,6 +250,15 @@ def get_escrowed_balances(addresses):
 
 
 @API.add_method
+def get_assets_names_and_longnames():
+    ret = []
+    assets = config.mongo_db.tracked_assets.find({}, {'_id': 0, '_history': 0})
+    for e in assets:
+        ret.append({'asset': e['asset'], 'asset_longname': e['asset_longname']})
+    return ret
+
+
+@API.add_method
 def get_assets_info(assetsList):
     assets = assetsList  # TODO: change the parameter name at some point in the future...shouldn't be using camel case here
     if not isinstance(assets, list):
@@ -255,10 +270,11 @@ def get_assets_info(assetsList):
             if asset == config.BTC:
                 supply = blockchain.get_btc_supply(self.proxy, normalize=False)
             else:
-                supply = util.call_jsonrpc_api("get_supply", {'asset': 'XCP'}, abort_on_error=True)['result']
+                supply = util.call_jsonrpc_api("get_supply", {'asset': config.XCP}, abort_on_error=True)['result']
 
             assets_info.append({
                 'asset': asset,
+                'asset_longname': None,
                 'owner': None,
                 'divisible': True,
                 'locked': False,
@@ -269,11 +285,12 @@ def get_assets_info(assetsList):
             continue
 
         # User-created asset.
-        tracked_asset = config.mongo_db.tracked_assets.find_one({'asset': asset}, {'_id': 0, '_history': 0})
+        tracked_asset = config.mongo_db.tracked_assets.find_one({'$or': [{'asset': asset}, {'asset_longname': asset}]}, {'_id': 0, '_history': 0})
         if not tracked_asset:
             continue  # asset not found, most likely
         assets_info.append({
-            'asset': asset,
+            'asset': tracked_asset['asset'],
+            'asset_longname': tracked_asset['asset_longname'],
             'owner': tracked_asset['owner'],
             'divisible': tracked_asset['divisible'],
             'locked': tracked_asset['locked'],
@@ -435,7 +452,7 @@ def get_asset_history(asset, reverse=False):
 @API.add_method
 def get_balance_history(asset, addresses, normalize=True, start_ts=None, end_ts=None):
     """Retrieves the ordered balance history for a given address (or list of addresses) and asset pair, within the specified date range
-    @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi). 
+    @param normalize: If set to True, return quantities that (if the asset is divisible) have been divided by 100M (satoshi).
     @return: A list of tuples, with the first entry of each tuple being the block time (epoch TS), and the second being the new balance
      at that block time.
     """
@@ -521,7 +538,7 @@ def parse_issuance(msg, msg_data):
                 'locked': True,
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
-        logger.info("Locking asset %s" % (msg_data['asset'],))
+        logger.info("Locking asset {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
     elif msg_data['transfer']:  # transfer asset
         assert tracked_asset is not None
         config.mongo_db.tracked_assets.update(
@@ -533,7 +550,7 @@ def parse_issuance(msg, msg_data):
                 'owner': msg_data['issuer'],
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
-        logger.info("Transferring asset %s to address %s" % (msg_data['asset'], msg_data['issuer']))
+        logger.info("Transferring asset {}{} to address {}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else '', msg_data['issuer']))
     elif msg_data['quantity'] == 0 and tracked_asset is not None:  # change description
         config.mongo_db.tracked_assets.update(
             {'asset': msg_data['asset']},
@@ -545,7 +562,7 @@ def parse_issuance(msg, msg_data):
             },
                 "$push": {'_history': tracked_asset}}, upsert=False)
         modify_extended_asset_info(msg_data['asset'], msg_data['description'])
-        logger.info("Changing description for asset %s to '%s'" % (msg_data['asset'], msg_data['description']))
+        logger.info("Changing description for asset {}{} to '{}'".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else '', msg_data['description']))
     else:  # issue new asset or issue addition qty of an asset
         if not tracked_asset:  # new issuance
             tracked_asset = {
@@ -556,6 +573,7 @@ def parse_issuance(msg, msg_data):
                 # asset, the last one with _at_block == that block id in the history array is the
                 # final version for that asset at that block
                 'asset': msg_data['asset'],
+                'asset_longname': msg_data.get('asset_longname', None), # for subassets, this is the full subasset name of the asset, e.g. PIZZA.DOMINOSBLA
                 'owner': msg_data['issuer'],
                 'description': msg_data['description'],
                 'divisible': msg_data['divisible'],
@@ -565,7 +583,7 @@ def parse_issuance(msg, msg_data):
                 '_history': []  # to allow for block rollbacks
             }
             config.mongo_db.tracked_assets.insert(tracked_asset)
-            logger.info("Tracking new asset: %s" % msg_data['asset'])
+            logger.info("Tracking new asset: {}{}".format(msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
             modify_extended_asset_info(msg_data['asset'], msg_data['description'])
         else:  # issuing additional of existing asset
             assert tracked_asset is not None
@@ -581,8 +599,8 @@ def parse_issuance(msg, msg_data):
                     'total_issued_normalized': blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible'])
                 },
                     "$push": {'_history': tracked_asset}}, upsert=False)
-            logger.info("Adding additional %s quantity for asset %s" % (
-                blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible']), msg_data['asset']))
+            logger.info("Adding additional {} quantity for asset {}{}".format(blockchain.normalize_quantity(msg_data['quantity'], msg_data['divisible']),
+                msg_data['asset'], ' ({})'.format(msg_data['asset_longname']) if msg_data.get('asset_longname', None) else ''))
     return True
 
 
@@ -623,6 +641,7 @@ def parse_balance_change(msg, msg_data):
             bal_change = {
                 'address': address,
                 'asset': asset_info['asset'],
+                'asset_longname': asset_info['asset_longname'],
                 'block_index': config.state['cur_block']['block_index'],
                 'block_time': config.state['cur_block']['block_time_obj'],
                 'quantity': quantity,
@@ -651,6 +670,10 @@ def init():
         ("block_index", pymongo.DESCENDING),
         ("_id", pymongo.DESCENDING)
     ])
+    #config.mongo_db.balance_changes.ensure_index([
+    #    ("address", pymongo.ASCENDING),
+    #    ("asset_longname", pymongo.ASCENDING),
+    #])
     try:  # drop unnecessary indexes if they exist
         config.mongo_db.balance_changes.drop_index('address_1_asset_1_block_time_1')
     except:
@@ -685,6 +708,7 @@ def process_rollback(max_block_index):
         for asset in [config.XCP, config.BTC]:
             base_asset = {
                 'asset': asset,
+                'asset_longname': None,
                 'owner': None,
                 'divisible': True,
                 'locked': False,
